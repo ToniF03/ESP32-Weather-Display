@@ -22,9 +22,7 @@
 
 
 #define host "pro.openweathermap.org"
-#define OPENWEATHERMAP_KEY "69c87ace58d6dba8cd3b1ab08cfc3174"
 #define SEGMENTS 20
-#define TELEGRAM_KEY "7533979021:AAFPUs_3akpVGhdg-tZBmCr5pieBfu-_B1Q"
 #define vRef 0.418831844
 
 void failedConnection();
@@ -64,7 +62,7 @@ const char *password = "FqJMFw851IMBgdsv";
 void setupWiFi() {
   WiFi.setHostname("PixelPioneer ePaper");
 
-  WiFi.begin("Vodafone-05FD", "tmgahUGh4rPHT34Q");
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   float connectionBegin = millis();
   while (WiFi.status() != WL_CONNECTED) {
     Serial.print(".");
