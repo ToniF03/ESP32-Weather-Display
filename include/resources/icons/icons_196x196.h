@@ -1042,4 +1042,5 @@
 #include "196x196/wi_wind_beaufort_8_196x196.h"
 #include "196x196/wi_wind_beaufort_9_196x196.h"
 #include "196x196/wi_windy_196x196.h"
+#include "196x196/sy_github_196x196.h"
 #endif

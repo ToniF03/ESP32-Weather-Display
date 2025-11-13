@@ -2,16 +2,17 @@
 #include <Adafruit_ADS1X15.h>
 #include <Adafruit_GFX.h>
 #include <CTBot.h>
-#include <GxEPD2_3C.h>
+#include <GxEPD2_3C.h> 
 #include <InterpolationLib.h>
 #include <math.h>
 #include <time.h>
 #include <TimeLib.h>
+//#include <ezTime.h>
 #include <WiFi.h>
-#include "resources/icons/icons.h"
-#include "resources/fonts/fonts.h"
+#include <resources/icons/icons.h>
+#include <resources/fonts/fonts.h>
 
-// EPD              
+// EPD
 // BUSY =>  IO04
 // RES  =>  IO16
 // D/C  =>  IO17
@@ -20,11 +21,31 @@
 // SDI  =>  IO25
 
 
-#define host "api.openweathermap.org"
-#define OPENWEATHERMAP_KEY "YOUR_OPENWEATHERMAP_API_KEY"
+#define host "pro.openweathermap.org"
+#define OPENWEATHERMAP_KEY "69c87ace58d6dba8cd3b1ab08cfc3174"
 #define SEGMENTS 20
-#define TELEGRAM_KEY "YOUR_TELEGRAM_API_KEY"
+#define TELEGRAM_KEY "7533979021:AAFPUs_3akpVGhdg-tZBmCr5pieBfu-_B1Q"
 #define vRef 0.418831844
+
+void failedConnection();
+void failedDataFetch();
+void failedTimeFetch();
+void lowBattery();
+void goDeepSleep();
+void setupWiFi();
+void fillPolygon(int16_t x1, int16_t y1, int16_t x2, int16_t y2, int16_t x3, int16_t y3, int16_t x4, int16_t y4, uint16_t color);
+void drawDarkGreyLine(int x1, int y1, int x2, int y2);
+void drawDarkGreyLine(int x1, int y1, int x2, int y2);
+void fillGreyRect(int x1, int y1, int x2, int y2);
+char *getWiFidesc(int rssi);
+char *getUVIdesc(float uvi);
+const uint8_t *getForecastBitmap196(int picId, int clouds, float wind_speed, float wind_gust);
+const uint8_t *getForecastBitmap96(int picId, int clouds, float wind_speed, float wind_gust);
+const uint8_t *getWindBitmap32(int wind_deg);
+const uint8_t *getBatBitmap16(float batPercentage);
+const uint8_t *getWiFiBitmap16(int rssi);
+uint32_t calcBatPercent(float voltage, float minVoltage, float maxVoltage);
+
 
 GxEPD2_3C<GxEPD2_750c_Z08, GxEPD2_750c_Z08::HEIGHT / 2> display(GxEPD2_750c_Z08(26, 17, 16, 4));
 WiFiClient client;
@@ -38,14 +59,16 @@ const long gmtOffset_sec = 7200;
 const int daylightOffset_sec = 3600 * 0;
 
 const char *ssid = "PP WeatherStation";
-const char *password = "YOUR_STATION_PASSWORD";
+const char *password = "FqJMFw851IMBgdsv";
 
 void setupWiFi() {
   WiFi.setHostname("PixelPioneer ePaper");
-  WiFi.begin("YOUR_SSID", "YOUR_PASSWORD");
+
+  WiFi.begin("Vodafone-05FD", "tmgahUGh4rPHT34Q");
   float connectionBegin = millis();
   while (WiFi.status() != WL_CONNECTED) {
     Serial.print(".");
+    delay(50);
     if (millis() - connectionBegin >= 60000) {
       failedConnection();
       goDeepSleep();
@@ -79,7 +102,7 @@ void setup() {
   display.setTextColor(GxEPD_BLACK);
 
   display.firstPage();
-  
+
   setupWiFi();
 
   ads.setGain(GAIN_TWOTHIRDS);
@@ -106,6 +129,10 @@ void setup() {
     lowBattery();
 
   adjustTime(7200);
+  //waitForSync();
+  //Timezone germanTZ;
+  //germanTZ.setLocation(F("Europe/Berlin"));
+  //Serial.println(germanTZ.dateTime());
 }
 
 void fillPolygon(int16_t x1, int16_t y1, int16_t x2, int16_t y2, int16_t x3, int16_t y3, int16_t x4, int16_t y4, uint16_t color) {
@@ -114,13 +141,84 @@ void fillPolygon(int16_t x1, int16_t y1, int16_t x2, int16_t y2, int16_t x3, int
 }
 
 void loop() {
+
+  // Time
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
   struct tm timeinfo;
   if (!getLocalTime(&timeinfo)) {
     Serial.println("Failed to obtain time");
     failedTimeFetch();
   }
+  Serial.print("Current Time: ");
   Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
+  
+  // Hourly forecast
+  if (!client.connect(host, 80))
+    failedDataFetch();
+  client.print(String("GET /data/2.5/forecast/hourly?lat=49.630638&lon=8.357910&units=metric&cnt=24&APPID=") + OPENWEATHERMAP_KEY + " HTTP/1.1\r\n" + "Host: " + host + "\r\n" + "Connection: close\r\n\r\n");
+
+  String response = "";
+  while (client.connected() || client.available()) {
+    if (client.available()) {
+      response = client.readStringUntil('\n');
+    }
+  }
+  client.stop();
+  DynamicJsonDocument doc(15000);
+  DeserializationError error = deserializeJson(doc, response);
+
+  if (error) {
+    Serial.print("Error occured while fetching forecast: ");
+    Serial.println(error.c_str());
+  }
+
+  float forecast[2][25];
+  // pic ID, min, max, clouds, wind speed, wind gust
+  float dailyForecast[6][4];
+  float minForecast;
+  float maxForecast;
+  float diagramStep;
+  float wind_speed_sum;
+  float wind_gust_sum;
+  float clouds_sum;
+  int a = 1;
+
+  while (doc["list"][a]["dt_txt"].as<String>().substring(0, 10) == String(doc["list"][0]["dt_txt"]).substring(0, 10)){
+    Serial.print(a);
+    Serial.print(": ");
+    Serial.println(String(doc["list"][a]["main"]["temp"]));
+    delay(100);
+    a++;
+  }
+
+  for (int i = 0; i < 25; i++) {
+    forecast[0][i] = doc["list"][i]["pop"];
+    forecast[1][i] = doc["list"][i]["main"]["temp"];
+    //forecast[1][i] = round(forecast[1][i]);
+    if (i == 0) {
+      minForecast = forecast[1][0];
+      maxForecast = forecast[1][0];
+    }
+    minForecast = minForecast > forecast[1][i] ? forecast[1][i] : minForecast;
+    maxForecast = maxForecast < forecast[1][i] ? forecast[1][i] : maxForecast;
+  }
+
+  Serial.print("Min: ");
+  Serial.println(minForecast);
+  Serial.print("Max: ");
+  Serial.println(maxForecast);
+
+  // ^^^^^^^^^^^^ HIER
+    Serial.println("6");
+
+  int dict[2][4];
+  for (int picIndex = 0; picIndex < 4; picIndex++) {
+    dict[0][picIndex] = 0;
+    dict[1][picIndex] = 0;
+  }
+
+  
+  Serial.println("7");
 
 
   if (!client.connect(host, 80))
@@ -128,22 +226,17 @@ void loop() {
   Serial.println("Connected to OpenWeatherMap");
   client.print(String("GET /data/2.5/weather?lat=49.630638&lon=8.357910&units=metric&appid=") + OPENWEATHERMAP_KEY + " HTTP/1.1\r\n" + "Host: " + host + "\r\n" + "Connection: close\r\n\r\n");
 
-  String response = "";
   while (client.connected() || client.available()) {
     if (client.available()) {
-      response += client.readString();
+      response += client.readStringUntil('\n');
     }
   }
   client.stop();
 
-  int jsonStart = response.indexOf("\r\n\r\n");
-  String jsonData = response.substring(jsonStart);
-
-  DynamicJsonDocument doc(50000);
-  DeserializationError error = deserializeJson(doc, jsonData);
-
-  if (error)
-    Serial.println("Error occured!");
+  if (error) {
+    Serial.print("Error occured while fetching forecast: ");
+    Serial.println(error.c_str());
+  }
   float temp = doc["main"]["temp"];
   float feelsLike = doc["main"]["feels_like"];
   int picId = doc["weather"][0]["id"];
@@ -165,60 +258,20 @@ void loop() {
   response = "";
   while (client.connected() || client.available()) {
     if (client.available()) {
-      response += client.readString();
+      response += client.readStringUntil('\n');
     }
   }
   client.stop();
 
-  jsonStart = response.indexOf("\r\n\r\n");
-  jsonData = response.substring(jsonStart);
+  error = deserializeJson(doc, response);
 
-  error = deserializeJson(doc, jsonData);
-
-  if (error)
-    Serial.println("Error occured!");
+  if (error) {
+    Serial.println(response);
+    Serial.print("Error occured while fetching forecast: ");
+    Serial.println(error.c_str());
+  }
 
   float uvi = doc["value"];
-
-  if (!client.connect(host, 80))
-    failedDataFetch();
-  client.print(String("GET /data/2.5/forecast?lat=49.630638&lon=8.357910&units=metric&appid=") + OPENWEATHERMAP_KEY + " HTTP/1.1\r\n" + "Host: " + host + "\r\n" + "Connection: close\r\n\r\n");
-
-  response = "";
-  while (client.connected() || client.available()) {
-    if (client.available()) {
-      response += client.readString();
-    }
-  }
-  client.stop();
-
-  jsonStart = response.indexOf("\r\n\r\n");
-  jsonData = response.substring(jsonStart);
-
-  error = deserializeJson(doc, jsonData);
-
-  if (error)
-    Serial.println("Error occured while fetching forecast!");
-
-  float forecast[2][9];
-  // pic ID, min, max, clouds, wind speed, wind gust
-  float dailyForecast[6][4];
-  float minForecast;
-  float maxForecast;
-  float diagramStep;
-  float wind_speed_sum;
-  float wind_gust_sum;
-  float clouds_sum;
-  int a = 1;
-
-  while (String(doc["list"][a]["dt_txt"]).substring(0, 10) == String(doc["list"][0]["dt_txt"]).substring(0, 10))
-    a++;
-
-  int dict[2][4];
-  for (int picIndex = 0; picIndex < 4; picIndex++) {
-    dict[0][picIndex] = 0;
-    dict[1][picIndex] = 0;
-  }
 
   for (int i = 0; i < 4; i++) {
     for (int entry = a + i * 8; entry < a + i * 8 + 8; entry++) {
@@ -249,6 +302,9 @@ void loop() {
       }
     }
 
+  
+    Serial.println("8");
+
     dailyForecast[3][i] = (float)clouds_sum / 4;
     dailyForecast[4][i] = (float)wind_speed_sum / 4;
     dailyForecast[5][i] = (float)wind_gust_sum / 4;
@@ -263,27 +319,18 @@ void loop() {
       dict[1][picIndex] = 0;
     }
   }
-
-  for (int i = 0; i < 9; i++) {
-    forecast[0][i] = doc["list"][i]["pop"];
-    forecast[1][i] = doc["list"][i]["main"]["temp"];
-    forecast[1][i] = round(forecast[1][i]);
-    if (i == 0) {
-      minForecast = forecast[1][0];
-      maxForecast = forecast[1][0];
-    }
-    minForecast = minForecast > forecast[1][i] ? forecast[1][i] : minForecast;
-    maxForecast = maxForecast < forecast[1][i] ? forecast[1][i] : maxForecast;
-  }
   diagramStep = (maxForecast - minForecast) / 4;
 
-  const int numValues = 9;
-  double xValues[9];
-  double yValues[9];
-  for (int i = 0; i < 9; i++) {
-    xValues[i] = (double)(389 + 376 / 8 * i);
+  const int numValues = 25;
+  double xValues[25];
+  double yValues[25];
+  for (int i = 0; i < numValues; i++) {
+    xValues[i] = (double)(389 + 376 / (numValues - 1) * i);
     yValues[i] = (double)round(430 - 200 * (forecast[1][i] - minForecast + diagramStep) / (maxForecast - minForecast + diagramStep));
   }
+
+  
+    Serial.println("10");
 
   do {
     // Lower Bar
