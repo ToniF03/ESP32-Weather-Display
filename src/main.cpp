@@ -11,6 +11,7 @@
 #include <WiFi.h>
 #include <resources/icons/icons.h>
 #include <resources/fonts/fonts.h>
+#include <resources/credentials.h>
 
 // EPD
 // BUSY =>  IO04
